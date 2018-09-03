@@ -28,6 +28,7 @@ import java.util.Map;
 public class StringSerializer implements Serializer<String> {
     private String encoding = "UTF8";
 
+    //configure方法进行序列化前的配置工作，如设置编码格式
     @Override
     public void configure(Map<String, ?> configs, boolean isKey) {
         String propertyName = isKey ? "key.serializer.encoding" : "value.serializer.encoding";
@@ -38,6 +39,7 @@ public class StringSerializer implements Serializer<String> {
             encoding = (String) encodingValue;
     }
 
+    //serialize是实际序列化的地方
     @Override
     public byte[] serialize(String topic, String data) {
         try {

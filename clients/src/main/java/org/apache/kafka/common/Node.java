@@ -18,6 +18,7 @@ package org.apache.kafka.common;
 
 /**
  * Information about a Kafka node
+ * 表示集群中的一个节点，记录了IP、host、port等数据
  */
 public class Node {
 

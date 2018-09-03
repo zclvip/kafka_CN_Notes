@@ -29,14 +29,16 @@ import java.util.concurrent.TimeUnit;
  * partition in a produce request and it is shared by all the {@link RecordMetadata} instances that are batched together
  * for the same partition in the request.
  */
+//ProduceRequestResult并未实现Future接口，通过包含一个count值为1的CountDownLatch对象，实现了类似的功能
+    //done()方法调用latch.countDown()减一，那么就唤醒了阻塞在await方法的线程
 public final class ProduceRequestResult {
 
     private final CountDownLatch latch = new CountDownLatch(1);
     private final TopicPartition topicPartition;
-
+    //表示服务端为此ProducerBatch中第一条消息分配的offset，这样每个消息可以根据 此offset以及自身在ProducerBatch中的相对偏移量，计算出其在服务端分区中的偏移量
     private volatile Long baseOffset = null;
     private volatile long logAppendTime = RecordBatch.NO_TIMESTAMP;
-    private volatile RuntimeException error;
+    private volatile RuntimeException error;//error字段来区分异常完成还是正常完成
 
     /**
      * Create an instance of this class.
@@ -63,6 +65,7 @@ public final class ProduceRequestResult {
     /**
      * Mark this request as complete and unblock any threads waiting on its completion.
      */
+    //当ProducerBatch中全部的消息被正常响应、或者超时、或者关闭生产者时，会调用该方法，error字段来区分异常完成还是正常完成
     public void done() {
         if (baseOffset == null)
             throw new IllegalStateException("The method `set` must be invoked before this method.");

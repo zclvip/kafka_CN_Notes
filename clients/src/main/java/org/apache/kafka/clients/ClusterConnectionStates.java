@@ -27,11 +27,15 @@ import java.util.Map;
  * The state of our connection to each node in the cluster.
  *
  */
+//集群的每个node的连接状态
 final class ClusterConnectionStates {
+    //重连的backOff的初始时间
     private final long reconnectBackoffInitMs;
+    ////重连的backOff的最大时间
     private final long reconnectBackoffMaxMs;
     private final static int RECONNECT_BACKOFF_EXP_BASE = 2;
     private final double reconnectBackoffMaxExp;
+    //nodeid和连接状态的对应关系，可以看出，一个node维护一个连接
     private final Map<String, NodeConnectionState> nodeState;
 
     public ClusterConnectionStates(long reconnectBackoffMs, long reconnectBackoffMaxMs) {
@@ -48,11 +52,17 @@ final class ClusterConnectionStates {
      * @param now the current time in ms
      * @return true if we can initiate a new connection
      */
+    //是否可以能连接，返回true，可以初始化一个新连接
+    //有两种情况返回true
+    // 1、还没有连接
+    // 2、连接是断开状态，其两次重试之间的时间差已经过了重试的退避时间
     public boolean canConnect(String id, long now) {
         NodeConnectionState state = nodeState.get(id);
+        //如果state为null，表示还没有这个连接
         if (state == null)
             return true;
         else
+            //有state值，如果state是未连接状态，并且现在距离最后一次连接时间差已经过了重连的backoff时间，也可以新建连接
             return state.state.isDisconnected() &&
                    now - state.lastConnectAttemptMs >= state.reconnectBackoffMs;
     }
@@ -62,11 +72,19 @@ final class ClusterConnectionStates {
      * @param id the connection to check
      * @param now the current time in ms
      */
+    //该方法返回false有以下几种情况：
+    // 1、该node还木有连接  这种情况可以建立连接
+    // 2、当前连接是断开状态，但是已过了重试的backOff时间 这种情况可以重试连接
+    // 3、当前连接不是断开状态，但是在重试的backOff时间内   不是断开状态要么是isConnected状态，要么是CONNECTING状态，那么也是可以连接的
+    //返回true的情况只有一种，即当前连接是断开状态，并且还在重试的backOff时间内，在这种情况下是不可以重新连接的
     public boolean isBlackedOut(String id, long now) {
         NodeConnectionState state = nodeState.get(id);
+        //state为null，表示nodeState还没有维护连接状态，即该node还没有创建连接
         if (state == null)
             return false;
         else
+            //如果连接是断开状态，并且看看当前时间减去上次连接时间是否小于连接重试的backOff时间
+            //now - state.lastConnectAttemptMs < state.reconnectBackoffMs 表示当前时间还在backOff时间内，是不能重新连接的
             return state.state.isDisconnected() &&
                    now - state.lastConnectAttemptMs < state.reconnectBackoffMs;
     }
@@ -105,12 +123,15 @@ final class ClusterConnectionStates {
      * @param id the id of the connection
      * @param now the current time
      */
+    //设置连接的正在连接状态 即connecting状态
     public void connecting(String id, long now) {
+        //如果nodeState中已经有了该连接，那么设置最后连接时间为当前时间，当前连接状态设置为正在连接 即CONNECTING
         if (nodeState.containsKey(id)) {
             NodeConnectionState node = nodeState.get(id);
             node.lastConnectAttemptMs = now;
             node.state = ConnectionState.CONNECTING;
         } else {
+            //如果nodeState中还没保存该连接，那么保存，该连接状态为正在连接，即CONNECTING
             nodeState.put(id, new NodeConnectionState(ConnectionState.CONNECTING, now,
                 this.reconnectBackoffInitMs));
         }
@@ -121,6 +142,7 @@ final class ClusterConnectionStates {
      * @param id the connection we have disconnected
      * @param now the current time
      */
+    //设置连接的 断开状态 即 DISCONNECTED
     public void disconnected(String id, long now) {
         NodeConnectionState nodeState = nodeState(id);
         nodeState.state = ConnectionState.DISCONNECTED;
@@ -215,6 +237,8 @@ final class ClusterConnectionStates {
         return isReady(nodeState.get(id), now);
     }
 
+    //是否状态好，即  有状态且状态是ready状态，并且当前不是节流
+    //不是节流的判断是，当前时间已经过了节流的时间点
     private boolean isReady(NodeConnectionState state, long now) {
         return state != null && state.state == ConnectionState.READY && state.throttleUntilTimeMs <= now;
     }
@@ -279,6 +303,7 @@ final class ClusterConnectionStates {
      *
      * @param nodeState The node state object to update
      */
+    //设置连接重试backoff时间  --TODO
     private void updateReconnectBackoff(NodeConnectionState nodeState) {
         if (this.reconnectBackoffMaxMs > this.reconnectBackoffInitMs) {
             nodeState.failedAttempts += 1;
@@ -327,12 +352,13 @@ final class ClusterConnectionStates {
      */
     private static class NodeConnectionState {
 
-        ConnectionState state;
+        ConnectionState state;//连接的状态
         AuthenticationException authenticationException;
-        long lastConnectAttemptMs;
-        long failedAttempts;
-        long reconnectBackoffMs;
+        long lastConnectAttemptMs;//上次连接时间
+        long failedAttempts;//失败次数
+        long reconnectBackoffMs;//重连的backOff
         // Connection is being throttled if current time < throttleUntilTimeMs.
+        //压制时间 如果当前时间小于throttleUntilTimeMs时间，connection就开始throttled
         long throttleUntilTimeMs;
 
         public NodeConnectionState(ConnectionState state, long lastConnectAttempt, long reconnectBackoffMs) {

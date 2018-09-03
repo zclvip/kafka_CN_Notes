@@ -30,20 +30,24 @@ import java.util.Set;
 
 /**
  * A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
+ * 集群信息
+ *
  */
 public final class Cluster {
 
     private final boolean isBootstrapConfigured;
-    private final List<Node> nodes;
+    private final List<Node> nodes;//集群中的节点信息列表
     private final Set<String> unauthorizedTopics;
     private final Set<String> invalidTopics;
     private final Set<String> internalTopics;
     private final Node controller;
-    private final Map<TopicPartition, PartitionInfo> partitionsByTopicPartition;
-    private final Map<String, List<PartitionInfo>> partitionsByTopic;
+    //下面的map是按不同的映射方式存放数据，便于数据处理
+    private final Map<TopicPartition, PartitionInfo> partitionsByTopicPartition;//记录了TopicPartition和PartitionInfo的对应关系，即分区编号和分区信息信息的对应关系
+    private final Map<String, List<PartitionInfo>> partitionsByTopic;//topic和全部分区的对应关系，即通过topic可以找到所有的分区详细信息
+    //记录topic和可用的分区信息的对应关系，这里存放发分区必须是有leader副本的分区；partitionsByTopic的分区不一定有leader副本，在leader副本宕机而选举的过程中，这个中间状态没有leader副本
     private final Map<String, List<PartitionInfo>> availablePartitionsByTopic;
-    private final Map<Integer, List<PartitionInfo>> partitionsByNode;
-    private final Map<Integer, Node> nodesById;
+    private final Map<Integer, List<PartitionInfo>> partitionsByNode;//记录了node节点，即可按照节点ID查找其上的所有分区信息，分区必须有leader副本
+    private final Map<Integer, Node> nodesById;//brokerId和节点的对应关系，方便按照brokerID进行查看信息
     private final ClusterResource clusterResource;
 
     /**
@@ -126,22 +130,23 @@ public final class Cluster {
             psTopic.add(p);
 
             if (p.leader() != null) {
-                List<PartitionInfo> psNode = Utils.notNull(partsForNode.get(p.leader().id()));
+                List<PartitionInfo> psNode = Utils.notNull(partsForNode.get(p.leader().id()));//partsForNode保存的分区也是必须有leader副本
                 psNode.add(p);
             }
         }
-        this.partitionsByTopic = new HashMap<>(partsForTopic.size());
+        this.partitionsByTopic = new HashMap<>(partsForTopic.size());//所有的分区
         this.availablePartitionsByTopic = new HashMap<>(partsForTopic.size());
         for (Map.Entry<String, List<PartitionInfo>> entry : partsForTopic.entrySet()) {
             String topic = entry.getKey();
             List<PartitionInfo> partitionList = entry.getValue();
             this.partitionsByTopic.put(topic, Collections.unmodifiableList(partitionList));
+            //过滤出有leader的副本集合
             List<PartitionInfo> availablePartitions = new ArrayList<>();
             for (PartitionInfo part : partitionList) {
                 if (part.leader() != null)
                     availablePartitions.add(part);
             }
-            this.availablePartitionsByTopic.put(topic, Collections.unmodifiableList(availablePartitions));
+            this.availablePartitionsByTopic.put(topic, Collections.unmodifiableList(availablePartitions));//分区必须有leader
         }
         this.partitionsByNode = new HashMap<>(partsForNode.size());
         for (Map.Entry<Integer, List<PartitionInfo>> entry : partsForNode.entrySet())
@@ -167,6 +172,7 @@ public final class Cluster {
      * @return A cluster for these hosts/ports
      */
     public static Cluster bootstrap(List<InetSocketAddress> addresses) {
+        //初始化了node
         List<Node> nodes = new ArrayList<>();
         int nodeId = -1;
         for (InetSocketAddress address : addresses)
@@ -239,6 +245,7 @@ public final class Cluster {
      * @param topic The topic to get the number of partitions for
      * @return The number of partitions or null if there is no corresponding metadata
      */
+    //获取topic的所有partition的数量
     public Integer partitionCountForTopic(String topic) {
         List<PartitionInfo> partitions = this.partitionsByTopic.get(topic);
         return partitions == null ? null : partitions.size();

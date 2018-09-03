@@ -52,8 +52,12 @@ public class DefaultPartitioner implements Partitioner {
      * @param cluster The current cluster metadata
      */
     public int partition(String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
+        //根据topic查询出所有的分区
         List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
+        //分区数量
         int numPartitions = partitions.size();
+        //如果没有key，则用AtomicInteger counter 对可用分区数量取模，counter递增
+        //如果没有可用分区，则对所有分区数量取模
         if (keyBytes == null) {
             int nextValue = nextValue(topic);
             List<PartitionInfo> availablePartitions = cluster.availablePartitionsForTopic(topic);
@@ -66,6 +70,7 @@ public class DefaultPartitioner implements Partitioner {
             }
         } else {
             // hash the keyBytes to choose a partition
+            //如果有key,则用key序列化的byte[]进行hash（murmur2）,然后对分区数量取模
             return Utils.toPositive(Utils.murmur2(keyBytes)) % numPartitions;
         }
     }
@@ -73,7 +78,7 @@ public class DefaultPartitioner implements Partitioner {
     private int nextValue(String topic) {
         AtomicInteger counter = topicCounterMap.get(topic);
         if (null == counter) {
-            counter = new AtomicInteger(ThreadLocalRandom.current().nextInt());
+            counter = new AtomicInteger(ThreadLocalRandom.current().nextInt());//counter初始化时值是随机数
             AtomicInteger currentCounter = topicCounterMap.putIfAbsent(topic, counter);
             if (currentCounter != null) {
                 counter = currentCounter;

@@ -32,9 +32,10 @@ import java.nio.ByteBuffer;
  * So, it's best to assume that buffer expansion can always happen. An improvement would be to create a separate class
  * that throws an error if buffer expansion is required to avoid the issue altogether.
  */
+//OutputStream 包装了一个ByteBuffer
 public class ByteBufferOutputStream extends OutputStream {
 
-    private static final float REALLOCATION_FACTOR = 1.1f;
+    private static final float REALLOCATION_FACTOR = 1.1f;//byteBuffer扩容因子
 
     private final int initialCapacity;
     private final int initialPosition;
@@ -57,10 +58,17 @@ public class ByteBufferOutputStream extends OutputStream {
         this(initialCapacity, false);
     }
 
+    /**
+     * ByteBuffer.allocate()分配是在jvm中
+     * ByteBuffer.allocateDirect()jvm外，就是系统级的内存
+     * @param initialCapacity
+     * @param directBuffer
+     */
     public ByteBufferOutputStream(int initialCapacity, boolean directBuffer) {
         this(directBuffer ? ByteBuffer.allocateDirect(initialCapacity) : ByteBuffer.allocate(initialCapacity));
     }
 
+    //重新了write方法，因此该输出流在进行写入操作时，就把消息写入了ByteBuffer
     public void write(int b) {
         ensureRemaining(1);
         buffer.put((byte) b);
@@ -112,22 +120,24 @@ public class ByteBufferOutputStream extends OutputStream {
      *
      * @param remainingBytesRequired The number of bytes required
      */
+    //如果bytebuffer容量不够，那么就进行扩容
     public void ensureRemaining(int remainingBytesRequired) {
         if (remainingBytesRequired > buffer.remaining())
             expandBuffer(remainingBytesRequired);
     }
 
     private void expandBuffer(int remainingRequired) {
+        //取原buffer的limit*1.1 和 buffer.position+remainingRequired 的最大值
         int expandSize = Math.max((int) (buffer.limit() * REALLOCATION_FACTOR), buffer.position() + remainingRequired);
         ByteBuffer temp = ByteBuffer.allocate(expandSize);
         int limit = limit();
-        buffer.flip();
+        buffer.flip();//读写翻转，由写模式到，limit=position position=0 mark=-1
         temp.put(buffer);
-        buffer.limit(limit);
+        buffer.limit(limit);//把limit设置为原来的位置
         // reset the old buffer's position so that the partial data in the new buffer cannot be mistakenly consumed
         // we should ideally only do this for the original buffer, but the additional complexity doesn't seem worth it
-        buffer.position(initialPosition);
-        buffer = temp;
+        buffer.position(initialPosition);//重置buffer的初始化position
+        buffer = temp;//返回扩容的bytebuffer
     }
 
 }

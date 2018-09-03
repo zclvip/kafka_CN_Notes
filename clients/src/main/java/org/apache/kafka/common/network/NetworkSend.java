@@ -27,13 +27,19 @@ public class NetworkSend extends ByteBufferSend {
         super(destination, sizeDelimit(buffer));
     }
 
+    //该方法创建了了一个ByteBuffer数组，一个保存size的buffer，一个保存消息的buffer
     private static ByteBuffer[] sizeDelimit(ByteBuffer buffer) {
+        //serialize方法的时候，rewind方法将position=0，因此 buffer.remaining()应该是buffer的容量
         return new ByteBuffer[] {sizeBuffer(buffer.remaining()), buffer};
     }
 
+    //创建一个4字节的sizeBuffer,用于保存报文的大小
     private static ByteBuffer sizeBuffer(int size) {
+        //创建4个字节的ByteBuffer
         ByteBuffer sizeBuffer = ByteBuffer.allocate(4);
+        //将消息的剩余大小写入sizeBuffer
         sizeBuffer.putInt(size);
+        //position=0
         sizeBuffer.rewind();
         return sizeBuffer;
     }

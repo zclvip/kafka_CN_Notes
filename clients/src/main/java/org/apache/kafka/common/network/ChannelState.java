@@ -54,14 +54,17 @@ import org.apache.kafka.common.errors.AuthenticationException;
  * </ul>
  */
 public class ChannelState {
+    //连接正在创建的时候就是 NOT_CONNECTED状态
+    //明文时，状态流转为:NOT_CONNECTED => READY => LOCAL_CLOSE
+    //SASL/SSL时，状态流转为：NOT_CONNECTED => AUTHENTICATE => READY => LOCAL_CLOSE
     public enum State {
-        NOT_CONNECTED,
-        AUTHENTICATE,
-        READY,
-        EXPIRED,
-        FAILED_SEND,
-        AUTHENTICATION_FAILED,
-        LOCAL_CLOSE
+        NOT_CONNECTED,//未连接
+        AUTHENTICATE,//认证
+        READY,//ready 已Connected，认证完的连接就是ready状态 可能的状态流转有：READY to EXPIRED, FAILED_SEND or LOCAL_CLOSE
+        EXPIRED,//过期
+        FAILED_SEND,//发送失败 如果发送失败导致channel就关闭了，这时就是就从ready状态到了failed_send
+        AUTHENTICATION_FAILED,//认证失败
+        LOCAL_CLOSE//close
     };
     // AUTHENTICATION_FAILED has a custom exception. For other states,
     // create a reusable `ChannelState` instance per-state.

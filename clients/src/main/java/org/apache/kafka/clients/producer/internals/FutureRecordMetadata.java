@@ -29,7 +29,7 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 public final class FutureRecordMetadata implements Future<RecordMetadata> {
 
     private final ProduceRequestResult result;
-    private final long relativeOffset;
+    private final long relativeOffset;//相对位移，其实就是消息的数量
     private final long createTimestamp;
     private final Long checksum;
     private final int serializedKeySize;

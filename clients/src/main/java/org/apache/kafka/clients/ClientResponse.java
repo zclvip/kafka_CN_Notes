@@ -104,6 +104,7 @@ public class ClientResponse {
         return latencyMs;
     }
 
+    //callback方法非空，则执行callback方法
     public void onComplete() {
         if (callback != null)
             callback.onComplete(this);

@@ -26,10 +26,10 @@ import java.util.List;
  * A class containing leadership, replicas and ISR information for a topic partition.
  */
 public class TopicPartitionInfo {
-    private final int partition;
-    private final Node leader;
-    private final List<Node> replicas;
-    private final List<Node> isr;
+    private final int partition;//分区编号
+    private final Node leader;//leader副本所在的节点
+    private final List<Node> replicas;//所有副本所在的节点
+    private final List<Node> isr;//ISR副本集合所在的节点
 
     /**
      * Create an instance of this class with the provided parameters.

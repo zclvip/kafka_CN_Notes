@@ -246,9 +246,10 @@ public class ProduceResponse extends AbstractResponse {
         return errorCounts;
     }
 
+    //每个分区响应对象
     public static final class PartitionResponse {
         public Errors error;
-        public long baseOffset;
+        public long baseOffset;//返回的是ProducerBatch的基础位移
         public long logAppendTime;
         public long logStartOffset;
 

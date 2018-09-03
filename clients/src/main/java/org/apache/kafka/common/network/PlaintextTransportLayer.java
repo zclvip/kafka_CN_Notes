@@ -45,6 +45,7 @@ public class PlaintextTransportLayer implements TransportLayer {
         return true;
     }
 
+    //建立是否完成，如果完成了，则取消连接事件，注册读事件，如果未完成，则返回false
     @Override
     public boolean finishConnect() throws IOException {
         boolean connected = socketChannel.finishConnect();
@@ -53,6 +54,7 @@ public class PlaintextTransportLayer implements TransportLayer {
         return connected;
     }
 
+    //取消了key
     @Override
     public void disconnect() {
         key.cancel();
@@ -99,6 +101,7 @@ public class PlaintextTransportLayer implements TransportLayer {
     * @return The number of bytes read, possible zero or -1 if the channel has reached end-of-stream
     * @throws IOException if some other I/O error occurs
     */
+    //从channel中读取数据到buffer中
     @Override
     public int read(ByteBuffer dst) throws IOException {
         return socketChannel.read(dst);

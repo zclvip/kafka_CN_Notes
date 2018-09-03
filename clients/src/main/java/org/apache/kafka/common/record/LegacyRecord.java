@@ -422,7 +422,9 @@ public final class LegacyRecord {
                              ByteBuffer value,
                              CompressionType compressionType,
                              TimestampType timestampType) throws IOException {
+        //计算attributes的字节数
         byte attributes = computeAttributes(magic, compressionType, timestampType);
+        //计算crc字节数
         long crc = computeChecksum(magic, attributes, timestamp, key, value);
         write(out, magic, crc, attributes, timestamp, key, value);
         return crc;

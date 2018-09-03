@@ -38,7 +38,7 @@ import static org.apache.kafka.common.utils.Utils.wrapNullable;
  * This will release resources like compression buffers that can be relatively large (64 KB for LZ4).
  */
 public class MemoryRecordsBuilder {
-    private static final float COMPRESSION_RATE_ESTIMATION_FACTOR = 1.05f;
+    private static final float COMPRESSION_RATE_ESTIMATION_FACTOR = 1.05f;//估算因子
     private static final DataOutputStream CLOSED_STREAM = new DataOutputStream(new OutputStream() {
         @Override
         public void write(int b) throws IOException {
@@ -46,38 +46,39 @@ public class MemoryRecordsBuilder {
         }
     });
 
-    private final TimestampType timestampType;
-    private final CompressionType compressionType;
+    private final TimestampType timestampType;//时间戳类型
+    private final CompressionType compressionType;//压缩类型
     // Used to hold a reference to the underlying ByteBuffer so that we can write the record batch header and access
     // the written bytes. ByteBufferOutputStream allocates a new ByteBuffer if the existing one is not large enough,
     // so it's not safe to hold a direct reference to the underlying ByteBuffer.
-    private final ByteBufferOutputStream bufferStream;
-    private final byte magic;
-    private final int initialPosition;
-    private final long baseOffset;
-    private final long logAppendTime;
+    private final ByteBufferOutputStream bufferStream;//包含了一个ByteBuffer,当写入数据超出bytebuffer容量时，进行自动扩容
+    private final byte magic;//Kafka服务程序协议版本号,目前只有0,1,2三个值，2才支持消息有header
+    private final int initialPosition;//bufferStream中的buffer的position
+    private final long baseOffset;//基础位移
+    private final long logAppendTime;//追加消息的时间
     private final boolean isControlBatch;
     private final int partitionLeaderEpoch;
-    private final int writeLimit;
-    private final int batchHeaderSizeInBytes;
+    private final int writeLimit;//用于记录buffer字段最多可以写入多个字节的数据
+    private final int batchHeaderSizeInBytes;//header的大小
 
     // Use a conservative estimate of the compression ratio. The producer overrides this using statistics
     // from previous batches before appending any records.
-    private float estimatedCompressionRatio = 1.0F;
+    private float estimatedCompressionRatio = 1.0F;//压缩率
 
     // Used to append records, may compress data on the fly
-    private DataOutputStream appendStream;
+    private DataOutputStream appendStream;//保存records,可以进行压缩，对bufferStream进行了一层装饰
     private boolean isTransactional;
     private long producerId;
     private short producerEpoch;
-    private int baseSequence;
+    private int baseSequence;//在这个set中的第一个消息的sequence number
+    //排除header未压缩的records大小 单位是字节
     private int uncompressedRecordsSizeInBytes = 0; // Number of bytes (excluding the header) written before compression
-    private int numRecords = 0;
+    private int numRecords = 0;//记录消息的数量 记录该buffer保存的消息的数量
     private float actualCompressionRatio = 1;
-    private long maxTimestamp = RecordBatch.NO_TIMESTAMP;
-    private long offsetOfMaxTimestamp = -1;
-    private Long lastOffset = null;
-    private Long firstTimestamp = null;
+    private long maxTimestamp = RecordBatch.NO_TIMESTAMP;//时间戳的最大值
+    private long offsetOfMaxTimestamp = -1;//最大时间戳的位移
+    private Long lastOffset = null;//最后的位移，初始化的等于baseOffset，然后没来一条消息就递增1
+    private Long firstTimestamp = null;//第一条消息的时间戳
 
     private MemoryRecords builtRecords;
     private boolean aborted = false;
@@ -125,6 +126,7 @@ public class MemoryRecordsBuilder {
 
         bufferStream.position(initialPosition + batchHeaderSizeInBytes);
         this.bufferStream = bufferStream;
+        //由此可知，appendStream是对bufferStream进行了一层装饰，那么在写入时，实际上调用的是bufferSteam的write方法
         this.appendStream = new DataOutputStream(compressionType.wrapForOutput(this.bufferStream, magic));
     }
 
@@ -194,6 +196,7 @@ public class MemoryRecordsBuilder {
      * Close this builder and return the resulting buffer.
      * @return The built log buffer
      */
+    //build方法，关闭了bufferStream流，构建了MemoryRecords对象，里面的ByteBuffer的数据为已经写入的数据
     public MemoryRecords build() {
         if (aborted) {
             throw new IllegalStateException("Attempting to build an aborted record batch");
@@ -270,6 +273,7 @@ public class MemoryRecordsBuilder {
      * Release resources required for record appends (e.g. compression buffers). Once this method is called, it's only
      * possible to update the RecordBatch header.
      */
+    //关闭appendSteam
     public void closeForRecordAppends() {
         if (appendStream != CLOSED_STREAM) {
             try {
@@ -283,8 +287,11 @@ public class MemoryRecordsBuilder {
     }
 
     public void abort() {
+        //关闭appendSteam
         closeForRecordAppends();
+        //重置buffer指针
         buffer().position(initialPosition);
+        //aborted=ture
         aborted = true;
     }
 
@@ -298,19 +305,23 @@ public class MemoryRecordsBuilder {
         this.isTransactional = isTransactional;
     }
 
-
+    //关闭了appendStream,如果没有消息numRecords=0,那么buffer position指向初始值，buildRecord empty
+    //如果有消息即numRecords=0，那么就把已经写入的数据进行复制，转为只读模式，复制buffer大小就是写入消息的容量
     public void close() {
         if (aborted)
             throw new IllegalStateException("Cannot close MemoryRecordsBuilder as it has already been aborted");
 
+        //由此可知，builtRecords非空，证明已为读模式
         if (builtRecords != null)
             return;
 
         validateProducerState();
-
+        //关闭appendSteam
         closeForRecordAppends();
 
+        //如果numRecords未0，则返回空MemoryRecords对象，里面ByteBuffer大小为0
         if (numRecords == 0L) {
+            //设置bufferStream中的buffer position指针为初始值
             buffer().position(initialPosition);
             builtRecords = MemoryRecords.EMPTY;
         } else {
@@ -319,9 +330,16 @@ public class MemoryRecordsBuilder {
             else if (compressionType != CompressionType.NONE)
                 this.actualCompressionRatio = (float) writeLegacyCompressedWrapperHeader() / this.uncompressedRecordsSizeInBytes;
 
+            //创建一个与原始缓冲区共享内容的新缓冲区,
+            // 两个缓冲区共享数据元素，拥有同样的容量，但每个缓冲区拥有各自的 position、limit 和 mark 属性。
+            // 对一个缓冲区你的数据元素所做的改变会反映在另外一个缓冲区上。这一副本缓冲区具有与原始缓冲区同样的数据视图。
+            // 如果原始的缓冲区为只读，或者为直接缓冲区，新的缓冲区将继承这些属性。
             ByteBuffer buffer = buffer().duplicate();
-            buffer.flip();
+            buffer.flip();//翻转，如果之前是写模式，那么现在就成了读模式
             buffer.position(initialPosition);
+            //slice()方法用于创建一个共享了原始缓冲区子序列的新缓冲区。
+            // 新缓冲区的position值是0，而其limit和capacity的值都等于原始缓冲区的limit和position的差值。
+            // slice()方法将新缓冲区数组的offset值设置为原始缓冲区的position值，然而，在新缓冲区上调用array()方法还是会返回整个数组。
             builtRecords = MemoryRecords.readableRecords(buffer.slice());
         }
     }
@@ -399,6 +417,7 @@ public class MemoryRecordsBuilder {
             if (isControlRecord != isControlBatch)
                 throw new IllegalArgumentException("Control records can only be appended to control batches");
 
+            //校验传进来的offset，必须大于lastoffset
             if (lastOffset != null && offset <= lastOffset)
                 throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s " +
                         "(Offsets must increase monotonically).", offset, lastOffset));
@@ -406,16 +425,20 @@ public class MemoryRecordsBuilder {
             if (timestamp < 0 && timestamp != RecordBatch.NO_TIMESTAMP)
                 throw new IllegalArgumentException("Invalid negative timestamp " + timestamp);
 
+            //由此可知，2才支持有header
             if (magic < RecordBatch.MAGIC_VALUE_V2 && headers != null && headers.length > 0)
                 throw new IllegalArgumentException("Magic v" + magic + " does not support record headers");
 
+            //保存第一个消息的时间戳
             if (firstTimestamp == null)
                 firstTimestamp = timestamp;
 
             if (magic > RecordBatch.MAGIC_VALUE_V1) {
+                //新版本调用该方法追加消息
                 appendDefaultRecord(offset, timestamp, key, value, headers);
                 return null;
             } else {
+                //老版本调用该方法
                 return appendLegacyRecord(offset, timestamp, key, value);
             }
         } catch (IOException e) {
@@ -621,20 +644,28 @@ public class MemoryRecordsBuilder {
         appendWithOffset(nextSequentialOffset(), record);
     }
 
+    //保存magic=2版本的消息
     private void appendDefaultRecord(long offset, long timestamp, ByteBuffer key, ByteBuffer value,
                                      Header[] headers) throws IOException {
+        //确保appendStream未关闭
         ensureOpenForRecordAppend();
+        //计算出这条消息在这个集合中的相对位移
         int offsetDelta = (int) (offset - baseOffset);
+        //计算出相对于第一条消息的时间差
         long timestampDelta = timestamp - firstTimestamp;
+        //把消息写入了 appendStream
         int sizeInBytes = DefaultRecord.writeTo(appendStream, offsetDelta, timestampDelta, key, value, headers);
+        //更新记录字段
         recordWritten(offset, timestamp, sizeInBytes);
     }
-
+    //保存magic<2版本的消息 即老版本的消息
     private long appendLegacyRecord(long offset, long timestamp, ByteBuffer key, ByteBuffer value) throws IOException {
         ensureOpenForRecordAppend();
+        //如果未压缩
         if (compressionType == CompressionType.NONE && timestampType == TimestampType.LOG_APPEND_TIME)
             timestamp = logAppendTime;
 
+        //根据magic不同，计算Record的长度
         int size = LegacyRecord.recordSize(magic, key, value);
         AbstractLegacyRecordBatch.writeHeader(appendStream, toInnerOffset(offset), size);
 
@@ -647,11 +678,13 @@ public class MemoryRecordsBuilder {
 
     private long toInnerOffset(long offset) {
         // use relative offsets for compressed messages with magic v1
+        //如果magic > 0 并且压缩，那么用相对位移
         if (magic > 0 && compressionType != CompressionType.NONE)
             return offset - baseOffset;
         return offset;
     }
 
+    //消息保存后，更新一些记录字段
     private void recordWritten(long offset, long timestamp, int size) {
         if (numRecords == Integer.MAX_VALUE)
             throw new IllegalArgumentException("Maximum number of records per batch exceeded, max records: " + Integer.MAX_VALUE);
@@ -659,16 +692,17 @@ public class MemoryRecordsBuilder {
             throw new IllegalArgumentException("Maximum offset delta exceeded, base offset: " + baseOffset +
                     ", last offset: " + offset);
 
-        numRecords += 1;
-        uncompressedRecordsSizeInBytes += size;
-        lastOffset = offset;
-
+        numRecords += 1;//消息数量加一
+        uncompressedRecordsSizeInBytes += size;//计算未压缩的字节数
+        lastOffset = offset;//更新最大位移
+        //magic >0 之后才有下面两个属性值
         if (magic > RecordBatch.MAGIC_VALUE_V0 && timestamp > maxTimestamp) {
-            maxTimestamp = timestamp;
+            maxTimestamp = timestamp;//更新最大时间戳
             offsetOfMaxTimestamp = offset;
         }
     }
 
+    //appendStream 看看是否已经关闭
     private void ensureOpenForRecordAppend() {
         if (appendStream == CLOSED_STREAM)
             throw new IllegalStateException("Tried to append a record, but MemoryRecordsBuilder is closed for record appends");
@@ -685,11 +719,14 @@ public class MemoryRecordsBuilder {
      * Get an estimate of the number of bytes written (based on the estimation factor hard-coded in {@link CompressionType}.
      * @return The estimated number of bytes written
      */
+    //预估已经保存数据的空间 压缩后的字节数是根据未压缩数据字节数*压缩率*估算因子 计算出来的大概值
     private int estimatedBytesWritten() {
+        //如果不压缩，那么就是header大小 加上 未压缩的排除header的大小
         if (compressionType == CompressionType.NONE) {
             return batchHeaderSizeInBytes + uncompressedRecordsSizeInBytes;
         } else {
             // estimate the written bytes to the underlying byte buffer based on uncompressed written bytes
+            //header大小+ 压缩后的字节数（未压缩数据的字节数*压缩率*估算因子）
             return batchHeaderSizeInBytes + (int) (uncompressedRecordsSizeInBytes * estimatedCompressionRatio * COMPRESSION_RATE_ESTIMATION_FACTOR);
         }
     }
@@ -705,6 +742,7 @@ public class MemoryRecordsBuilder {
      * Check if we have room for a new record containing the given key/value pair. If no records have been
      * appended, then this returns true.
      */
+    //判断是否有足够的空间追加消息
     public boolean hasRoomFor(long timestamp, byte[] key, byte[] value, Header[] headers) {
         return hasRoomFor(timestamp, wrapNullable(key), wrapNullable(value), headers);
     }
@@ -738,10 +776,14 @@ public class MemoryRecordsBuilder {
         return this.writeLimit >= estimatedBytesWritten() + recordSize;
     }
 
+    //builtRecords非空就表示已经关闭
     public boolean isClosed() {
         return builtRecords != null;
     }
 
+    //判断空间是否满了，如果appendStream流已经关闭了，或者已经有了保存的消息并且已经写满
+    // writeLimit代表能写的最大值，estimatedBytesWritten代表估算的已写入的字节数，没压缩的情况下，writeLimit >= estimatedBytesWritten()
+    // 压缩的情况下writeLimit 《= estimatedBytesWritten()
     public boolean isFull() {
         // note that the write limit is respected only after the first record is added which ensures we can always
         // create non-empty batches (this is used to disable batching when the producer's batch size is set to 0).
@@ -752,6 +794,8 @@ public class MemoryRecordsBuilder {
      * Get an estimate of the number of bytes written to the underlying buffer. The returned value
      * is exactly correct if the record set is not compressed or if the builder has been closed.
      */
+    //估算大小，如果builtRecords非空，表示已经关闭了，现在是只读模式，那么大小就是builtRecords的大小，
+    //否则，现在是写模式，estimatedBytesWritten方法估算已写入的字节数
     public int estimatedSizeInBytes() {
         return builtRecords != null ? builtRecords.sizeInBytes() : estimatedBytesWritten();
     }
@@ -760,6 +804,7 @@ public class MemoryRecordsBuilder {
         return magic;
     }
 
+    //位移递增1，每保存一个消息，offset就加一，lastOffset用于记录最后一个位移
     private long nextSequentialOffset() {
         return lastOffset == null ? baseOffset : lastOffset + 1;
     }

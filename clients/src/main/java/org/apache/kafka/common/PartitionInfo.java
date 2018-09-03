@@ -18,15 +18,17 @@ package org.apache.kafka.common;
 
 /**
  * This is used to describe per-partition state in the MetadataResponse.
+ * 表示了分区的详细信息，包含了topic名称，分区编号，leader副本所在的节点
+ * 已经副本、isr等副本所在的节点信息
  */
 public class PartitionInfo {
 
     private final String topic;
     private final int partition;
-    private final Node leader;
-    private final Node[] replicas;
-    private final Node[] inSyncReplicas;
-    private final Node[] offlineReplicas;
+    private final Node leader;//leader副本的节点
+    private final Node[] replicas;//全部副本所在的节点信息
+    private final Node[] inSyncReplicas;//isr集合中所有副本所在的节点信息
+    private final Node[] offlineReplicas;//离线副本集合所在的节点信息
 
     // Used only by tests
     public PartitionInfo(String topic, int partition, Node leader, Node[] replicas, Node[] inSyncReplicas) {

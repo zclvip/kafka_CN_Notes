@@ -237,6 +237,7 @@ public class ProducerConfig extends AbstractConfig {
             "Note that transactions requires a cluster of at least three brokers by default what is the recommended setting for production; for development you can change this, by adjusting broker setting `transaction.state.log.replication.factor`.";
 
     static {
+        //初始化一些默认的属性配置
         CONFIG = new ConfigDef().define(BOOTSTRAP_SERVERS_CONFIG, Type.LIST, Collections.emptyList(), new ConfigDef.NonNullValidator(), Importance.HIGH, CommonClientConfigs.BOOTSTRAP_SERVERS_DOC)
                                 .define(BUFFER_MEMORY_CONFIG, Type.LONG, 32 * 1024 * 1024L, atLeast(0L), Importance.HIGH, BUFFER_MEMORY_DOC)
                                 .define(RETRIES_CONFIG, Type.INT, Integer.MAX_VALUE, between(0, Integer.MAX_VALUE), Importance.HIGH, RETRIES_DOC)
@@ -303,7 +304,7 @@ public class ProducerConfig extends AbstractConfig {
                                 .define(KEY_SERIALIZER_CLASS_CONFIG,
                                         Type.CLASS,
                                         Importance.HIGH,
-                                        KEY_SERIALIZER_CLASS_DOC)
+                                        KEY_SERIALIZER_CLASS_DOC)//没有默认的策略
                                 .define(VALUE_SERIALIZER_CLASS_CONFIG,
                                         Type.CLASS,
                                         Importance.HIGH,
@@ -316,7 +317,7 @@ public class ProducerConfig extends AbstractConfig {
                                         CommonClientConfigs.CONNECTIONS_MAX_IDLE_MS_DOC)
                                 .define(PARTITIONER_CLASS_CONFIG,
                                         Type.CLASS,
-                                        DefaultPartitioner.class,
+                                        DefaultPartitioner.class,//使用默认的Partitioner策略
                                         Importance.MEDIUM, PARTITIONER_CLASS_DOC)
                                 .define(INTERCEPTOR_CLASSES_CONFIG,
                                         Type.LIST,
@@ -376,6 +377,11 @@ public class ProducerConfig extends AbstractConfig {
         return newProperties;
     }
 
+    /**
+     *
+     * @param props 自定义配置信息
+     *  CONFIG 是kafka系统默认的属性配置
+     */
     public ProducerConfig(Properties props) {
         super(CONFIG, props);
     }

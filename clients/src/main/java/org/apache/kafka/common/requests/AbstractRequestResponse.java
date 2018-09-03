@@ -25,9 +25,13 @@ public abstract class AbstractRequestResponse {
      * Visible for testing.
      */
     public static ByteBuffer serialize(Struct headerStruct, Struct bodyStruct) {
+        //根据head 和 body的大小 创建ByteBuffer
         ByteBuffer buffer = ByteBuffer.allocate(headerStruct.sizeOf() + bodyStruct.sizeOf());
+        //先将head写入buffer
         headerStruct.writeTo(buffer);
+        //在将body写入buffer
         bodyStruct.writeTo(buffer);
+        //重置position=0
         buffer.rewind();
         return buffer;
     }

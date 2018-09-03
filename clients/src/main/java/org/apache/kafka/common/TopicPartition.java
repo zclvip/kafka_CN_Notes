@@ -20,6 +20,7 @@ import java.io.Serializable;
 
 /**
  * A topic name and partition number
+ * 表示topic的一个分区，记录了topic和分区编号
  */
 public final class TopicPartition implements Serializable {
 

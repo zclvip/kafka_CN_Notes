@@ -25,13 +25,23 @@ package org.apache.kafka.clients;
  * READY: connection is ready to send requests
  * AUTHENTICATION_FAILED: connection failed due to an authentication error
  */
+
+/**
+ * DISCONNECTED: 连接不没成功建立就是disconnected状态
+ * CONNECTING: 连接正在建立
+ * CHECKING_API_VERSIONS: 连接已经建立但是api 版本正在校验，如果版本校验失败，连接关闭
+ * READY: 连接已经准备好发送数据了
+ * AUTHENTICATION_FAILED: 认证失败，认证失败和disconnected均表示，连接断开了
+ */
 public enum ConnectionState {
     DISCONNECTED, CONNECTING, CHECKING_API_VERSIONS, READY, AUTHENTICATION_FAILED;
 
+    //认证失败和disconnected均表示，连接断开了
     public boolean isDisconnected() {
         return this == AUTHENTICATION_FAILED || this == DISCONNECTED;
     }
 
+    //连接状态是 CHECKING_API_VERSIONS和ready 状态
     public boolean isConnected() {
         return this == CHECKING_API_VERSIONS || this == READY;
     }

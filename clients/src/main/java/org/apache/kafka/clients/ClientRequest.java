@@ -23,6 +23,7 @@ import org.apache.kafka.common.requests.RequestHeader;
 /**
  * A request being sent to the server. This holds both the network send as well as the client-level metadata.
  */
+//封装的只是Request对象，不是报文
 public final class ClientRequest {
 
     private final String destination;
@@ -30,6 +31,7 @@ public final class ClientRequest {
     private final int correlationId;
     private final String clientId;
     private final long createdTimeMs;
+    //是否期望有返回值 ack != 0
     private final boolean expectResponse;
     private final int requestTimeoutMs;
     private final RequestCompletionHandler callback;
@@ -81,6 +83,7 @@ public final class ClientRequest {
         return requestBuilder.apiKey();
     }
 
+    //创建请求头
     public RequestHeader makeHeader(short version) {
         return new RequestHeader(apiKey(), version, clientId, correlationId);
     }

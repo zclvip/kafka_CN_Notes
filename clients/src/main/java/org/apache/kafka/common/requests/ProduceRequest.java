@@ -118,9 +118,11 @@ public class ProduceRequest extends AbstractRequest {
             PRODUCE_REQUEST_V4, PRODUCE_REQUEST_V5, PRODUCE_REQUEST_V6};
     }
 
+    //builder中包含了请求要发送的数据
     public static class Builder extends AbstractRequest.Builder<ProduceRequest> {
         private final short acks;
         private final int timeout;
+        //请求的数据
         private final Map<TopicPartition, MemoryRecords> partitionRecords;
         private final String transactionalId;
 
@@ -130,6 +132,7 @@ public class ProduceRequest extends AbstractRequest {
             return forMagic(RecordBatch.CURRENT_MAGIC_VALUE, acks, timeout, partitionRecords, null);
         }
 
+        //创建builder
         public static Builder forMagic(byte magic,
                                        short acks,
                                        int timeout,
@@ -164,6 +167,7 @@ public class ProduceRequest extends AbstractRequest {
             this.transactionalId = transactionalId;
         }
 
+        //由该request的build方法，创建Request，数据在创建builder的时候已经传入了数据
         @Override
         public ProduceRequest build(short version) {
             return new ProduceRequest(version, acks, timeout, partitionRecords, transactionalId);
@@ -195,6 +199,7 @@ public class ProduceRequest extends AbstractRequest {
     private boolean transactional = false;
     private boolean idempotent = false;
 
+    //创建ProducerRequest
     private ProduceRequest(short version, short acks, int timeout, Map<TopicPartition, MemoryRecords> partitionRecords, String transactionalId) {
         super(version);
         this.acks = acks;
@@ -262,6 +267,7 @@ public class ProduceRequest extends AbstractRequest {
     /**
      * Visible for testing.
      */
+    //主要是封装ProduceRequest报文的body部分
     @Override
     public Struct toStruct() {
         // Store it in a local variable to protect against concurrent updates

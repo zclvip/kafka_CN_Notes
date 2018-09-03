@@ -83,6 +83,7 @@ public class NetworkReceive implements Receive {
         return source;
     }
 
+    //是否完成  size是否有空间，buffer是否有空间
     @Override
     public boolean complete() {
         return !size.hasRemaining() && buffer != null && !buffer.hasRemaining();

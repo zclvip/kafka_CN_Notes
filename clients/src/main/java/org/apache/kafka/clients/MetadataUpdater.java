@@ -30,6 +30,7 @@ import java.util.List;
  * <p>
  * This class is not thread-safe!
  */
+//MetadataUpdater接口是辅助NetworkClient更新cluster metadata的接口
 public interface MetadataUpdater extends Closeable {
 
     /**

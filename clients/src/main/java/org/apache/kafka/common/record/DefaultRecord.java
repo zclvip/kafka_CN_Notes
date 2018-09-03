@@ -61,6 +61,22 @@ import static org.apache.kafka.common.record.RecordBatch.MAGIC_VALUE_V2;
  * The offset and timestamp deltas compute the difference relative to the base offset and
  * base timestamp of the batch that this record is contained in.
  */
+//kafka的消息是以record方式存储下来
+//Record是个接口，DefaultRecord实现了Record接口，DefaultRecord的数据结构如下：
+/**
+ *Record =>
+ *   Length => Varint record的总长度
+ *   Attributes => Int8 属性
+ *   TimestampDelta => Varlong 时间戳的偏移量（相对于firstTimestamp）
+ *   OffsetDelta => Varint  offset的偏移量(相对于baseOffset)
+ *   Key => Bytes
+ *   Value => Bytes
+ *   Headers => [HeaderKey HeaderValue]
+ *     HeaderKey => String
+ *     HeaderValue => Bytes
+ *   varint是Protocol Buffers的类型，存储数值比较小的时候，会节省时间
+ */
+
 public class DefaultRecord implements Record {
 
     // excluding key, value and headers: 5 bytes length + 10 bytes timestamp + 5 bytes offset + 1 byte attributes
@@ -78,10 +94,10 @@ public class DefaultRecord implements Record {
     private final Header[] headers;
 
     private DefaultRecord(int sizeInBytes,
-                          byte attributes,
-                          long offset,
-                          long timestamp,
-                          int sequence,
+                          byte attributes,//1个字节
+                          long offset,//8个字节
+                          long timestamp,//8个字节
+                          int sequence,//4个字节
                           ByteBuffer key,
                           ByteBuffer value,
                           Header[] headers) {
@@ -172,6 +188,23 @@ public class DefaultRecord implements Record {
     /**
      * Write the record to `out` and return its size.
      */
+    /**
+     * 由写入的顺序可知，实际的报文结构为：
+     * Length => varint#record总长度(不包括Length本身)
+     * Attributes => int8# 属性
+     * TimestampDelta => varint# timestamp的偏移量(
+     * OffsetDelta => varint# offset的偏移量
+     * KeyLen => varint# key的长度
+     * Key => data# key的数据
+     * ValueLen => varint# value的长度
+     * Value => data# value的数据
+     * NumHeaders => varint# header的数量
+     * HeaderKeyLen => varint# key的长度
+     * HeaderKey => string# key的数据
+     * HeaderValueLen => varint# value的长度
+     * HeaderValue => data# value的数据
+     * ...
+     */
     public static int writeTo(DataOutputStream out,
                               int offsetDelta,
                               long timestampDelta,
@@ -179,33 +212,43 @@ public class DefaultRecord implements Record {
                               ByteBuffer value,
                               Header[] headers) throws IOException {
         int sizeInBytes = sizeOfBodyInBytes(offsetDelta, timestampDelta, key, value, headers);
+        //1、写入body的长度
         ByteUtils.writeVarint(sizeInBytes, out);
 
         byte attributes = 0; // there are no used record attributes at the moment
+        //2、写入attributes
         out.write(attributes);
-
+        //3、写入时间戳(是相对于第一条时间戳的偏移量)
         ByteUtils.writeVarlong(timestampDelta, out);
+        //4、写入offset
         ByteUtils.writeVarint(offsetDelta, out);
 
+        //写入key 如果没有key，那么写入的是-1
         if (key == null) {
             ByteUtils.writeVarint(-1, out);
         } else {
             int keySize = key.remaining();
+            //5、写入key的长度
             ByteUtils.writeVarint(keySize, out);
+            //6、写入key的值
             Utils.writeTo(out, key, keySize);
         }
 
+        //写入value,没有value，写入-1
         if (value == null) {
             ByteUtils.writeVarint(-1, out);
         } else {
             int valueSize = value.remaining();
+            //7、写入value的长度
             ByteUtils.writeVarint(valueSize, out);
+            //8、写入value的值
             Utils.writeTo(out, value, valueSize);
         }
 
         if (headers == null)
             throw new IllegalArgumentException("Headers cannot be null");
 
+        //9、写入header的数量
         ByteUtils.writeVarint(headers.length, out);
 
         for (Header header : headers) {
@@ -214,14 +257,19 @@ public class DefaultRecord implements Record {
                 throw new IllegalArgumentException("Invalid null header key found in headers");
 
             byte[] utf8Bytes = Utils.utf8(headerKey);
+            //10、写入header中key的长度
             ByteUtils.writeVarint(utf8Bytes.length, out);
+            //11、写入header中key的值
             out.write(utf8Bytes);
 
             byte[] headerValue = header.value();
+            //没有value就写入-1
             if (headerValue == null) {
                 ByteUtils.writeVarint(-1, out);
             } else {
+                //12、写入header中value的长度
                 ByteUtils.writeVarint(headerValue.length, out);
+                //13、写入header中value的值
                 out.write(headerValue);
             }
         }
@@ -289,9 +337,13 @@ public class DefaultRecord implements Record {
                                          long baseTimestamp,
                                          int baseSequence,
                                          Long logAppendTime) throws IOException {
+        //读取消息大小
         int sizeOfBodyInBytes = ByteUtils.readVarint(input);
+        //分配buffer
         ByteBuffer recordBuffer = ByteBuffer.allocate(sizeOfBodyInBytes);
+        //读取body的数据
         input.readFully(recordBuffer.array(), 0, sizeOfBodyInBytes);
+        //计算这个record的长度，包括了length
         int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
         return readFrom(recordBuffer, totalSizeInBytes, sizeOfBodyInBytes, baseOffset, baseTimestamp,
                 baseSequence, logAppendTime);
@@ -302,10 +354,11 @@ public class DefaultRecord implements Record {
                                          long baseTimestamp,
                                          int baseSequence,
                                          Long logAppendTime) {
+        //先读出length
         int sizeOfBodyInBytes = ByteUtils.readVarint(buffer);
         if (buffer.remaining() < sizeOfBodyInBytes)
             return null;
-
+        //计算总长度，包括length
         int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
         return readFrom(buffer, totalSizeInBytes, sizeOfBodyInBytes, baseOffset, baseTimestamp,
                 baseSequence, logAppendTime);
@@ -319,21 +372,28 @@ public class DefaultRecord implements Record {
                                           int baseSequence,
                                           Long logAppendTime) {
         try {
+            //记录开始的位置
             int recordStart = buffer.position();
+            //读取attributes
             byte attributes = buffer.get();
+            //读取时间戳
             long timestampDelta = ByteUtils.readVarlong(buffer);
+            //计算实际实际时间戳
             long timestamp = baseTimestamp + timestampDelta;
             if (logAppendTime != null)
                 timestamp = logAppendTime;
-
+            //读取相对位移
             int offsetDelta = ByteUtils.readVarint(buffer);
             long offset = baseOffset + offsetDelta;
+            //计算sequence
             int sequence = baseSequence >= 0 ?
                     DefaultRecordBatch.incrementSequence(baseSequence, offsetDelta) :
                     RecordBatch.NO_SEQUENCE;
 
             ByteBuffer key = null;
+            //读取keysize
             int keySize = ByteUtils.readVarint(buffer);
+            //读取key
             if (keySize >= 0) {
                 key = buffer.slice();
                 key.limit(keySize);
@@ -341,13 +401,16 @@ public class DefaultRecord implements Record {
             }
 
             ByteBuffer value = null;
+            //读取value size
             int valueSize = ByteUtils.readVarint(buffer);
+            //读取value
             if (valueSize >= 0) {
                 value = buffer.slice();
                 value.limit(valueSize);
                 buffer.position(buffer.position() + valueSize);
             }
 
+            //获取header的数量
             int numHeaders = ByteUtils.readVarint(buffer);
             if (numHeaders < 0)
                 throw new InvalidRecordException("Found invalid number of record headers " + numHeaders);
@@ -372,10 +435,11 @@ public class DefaultRecord implements Record {
     private static Header[] readHeaders(ByteBuffer buffer, int numHeaders) {
         Header[] headers = new Header[numHeaders];
         for (int i = 0; i < numHeaders; i++) {
+            //获取header key size
             int headerKeySize = ByteUtils.readVarint(buffer);
             if (headerKeySize < 0)
                 throw new InvalidRecordException("Invalid negative header key size " + headerKeySize);
-
+            //获取header key
             String headerKey = Utils.utf8(buffer, headerKeySize);
             buffer.position(buffer.position() + headerKeySize);
 
@@ -398,7 +462,9 @@ public class DefaultRecord implements Record {
                                   ByteBuffer key,
                                   ByteBuffer value,
                                   Header[] headers) {
+        //计算body的长度
         int bodySize = sizeOfBodyInBytes(offsetDelta, timestampDelta, key, value, headers);
+        //加上length的长度
         return bodySize + ByteUtils.sizeOfVarint(bodySize);
     }
 
@@ -422,6 +488,7 @@ public class DefaultRecord implements Record {
         return sizeOfBodyInBytes(offsetDelta, timestampDelta, keySize, valueSize, headers);
     }
 
+    //attributes + offset + timestamp + key
     private static int sizeOfBodyInBytes(int offsetDelta,
                                          long timestampDelta,
                                          int keySize,

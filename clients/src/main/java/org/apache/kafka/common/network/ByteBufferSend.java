@@ -26,12 +26,17 @@ import java.nio.channels.GatheringByteChannel;
  */
 public class ByteBufferSend implements Send {
 
+    //nodeid
     private final String destination;
+    //buffers的大小
     private final int size;
+    //ByteBuffer数组，一个存的是消息的大小，一个是消息
     protected final ByteBuffer[] buffers;
+    //消息的大小 初始化时和 size相等
     private int remaining;
     private boolean pending = false;
 
+    //buffers其实有两个buffer，一个sizeBuffer，一个是消息
     public ByteBufferSend(String destination, ByteBuffer... buffers) {
         this.destination = destination;
         this.buffers = buffers;

@@ -57,23 +57,23 @@ public final class ProducerBatch {
 
     private enum FinalState { ABORTED, FAILED, SUCCEEDED }
 
-    final long createdMs;
-    final TopicPartition topicPartition;
-    final ProduceRequestResult produceFuture;
+    final long createdMs;//创建时间 可用来计算是否过期
+    final TopicPartition topicPartition;//当前ProducerBatch中缓存的消息都会发送给次TopicPartition
+    final ProduceRequestResult produceFuture;//标识ProducerBatch状态的Future对象
 
-    private final List<Thunk> thunks = new ArrayList<>();
-    private final MemoryRecordsBuilder recordsBuilder;
-    private final AtomicInteger attempts = new AtomicInteger(0);
+    private final List<Thunk> thunks = new ArrayList<>();//thunk对象的集合，封装了callback
+    private final MemoryRecordsBuilder recordsBuilder;//用来存储数据的MemoryRecordsBuilder对象
+    private final AtomicInteger attempts = new AtomicInteger(0);//尝试发送当前ProducerBatch的次数
     private final boolean isSplitBatch;
     private final AtomicReference<FinalState> finalState = new AtomicReference<>(null);
 
-    int recordCount;
-    int maxRecordSize;
-    private long lastAttemptMs;
-    private long lastAppendTime;
-    private long drainedMs;
+    int recordCount;//记录了保存的record的数量
+    int maxRecordSize;//最大的Record的字节数
+    private long lastAttemptMs;//最后一次尝试发送的时间戳
+    private long lastAppendTime;//最后一次追加消息的时间戳
+    private long drainedMs;//drain 的时间
     private String expiryErrorMessage;
-    private boolean retry;
+    private boolean retry;//是否正在重试，ProducerBatch中的数据发送失败，则会重新尝试发送
     private boolean reopened = false;
 
     public ProducerBatch(TopicPartition tp, MemoryRecordsBuilder recordsBuilder, long createdMs) {
@@ -99,14 +99,22 @@ public final class ProducerBatch {
      *
      * @return The RecordSend corresponding to this record or null if there isn't sufficient room.
      */
+    //保存消息 实际上调用的是MemoryRecordsBuilder.append 方法
     public FutureRecordMetadata tryAppend(long timestamp, byte[] key, byte[] value, Header[] headers, Callback callback, long now) {
+        //判断是否还有空间，空间已满则返回null，该判断保证了recordsBuilder中保存的消息都是完整的消息，而不是部分消息
         if (!recordsBuilder.hasRoomFor(timestamp, key, value, headers)) {
             return null;
         } else {
             Long checksum = this.recordsBuilder.append(timestamp, key, value, headers);
+            //更新maxRecordSize
             this.maxRecordSize = Math.max(this.maxRecordSize, AbstractRecords.estimateSizeInBytesUpperBound(magic(),
                     recordsBuilder.compressionType(), key, value, headers));
-            this.lastAppendTime = now;
+            this.lastAppendTime = now;//最后一个追加消息的时间
+            //FutureRecordMetadata对象记录的相对位移，是在该ProducerBatch中的相对位移，其实就是ProducerBatch保存的消息的数量，即是第几个消息
+            // 每个消息封装了一个FutureRecordMetadata对象，produceFuture记录了服务端返回的该ProducerBatch的初始位移 ，
+            // relativeOffset属性记录了再改batch的第几个数据，根据初始位移和相对偏移量就计算出了绝对位移
+            // 每个FutureRecordMetadata对象封装在Thunk对象中，在消息发送完成后处理响应时，最终会循环调用该Thunk对象，
+            // 那么每个thunk对象其实对于与每个消息的返回结果
             FutureRecordMetadata future = new FutureRecordMetadata(this.produceFuture, this.recordCount,
                                                                    timestamp, checksum,
                                                                    key == null ? -1 : key.length,
@@ -114,7 +122,11 @@ public final class ProducerBatch {
             // we have to keep every future returned to the users in case the batch needs to be
             // split to several new batches and resent.
             thunks.add(new Thunk(callback, future));
-            this.recordCount++;
+            this.recordCount++;//记录保存的消息数量
+            //返回的future对象是FutureRecordMetadata，包含了一个produceFuture对象，一个ProducerBatch一个produceFuture对象；
+            // 该FutureRecordMetadata类型的future对象被封装了Thunk对象中，放进了thunks集合，并作为方法返回值返回；
+            // 然后在RecordAccumulator.append 方法中把FutureRecordMetadata封装在了RecordAppendResult对象中；
+            // 最终在KafkaProducer.doSend方法中通过RecordAppendResult.future的形式将FutureRecordMetadata对象返回给用户。
             return future;
         }
     }
@@ -174,6 +186,9 @@ public final class ProducerBatch {
      * @param exception The exception that occurred (or null if the request was successful)
      * @return true if the batch was completed successfully and false if the batch was previously aborted
      */
+    //设置finalState的值，exception 决定了是成功还是失败
+    //执行callbacks方法，执行latch.countDown()
+    // baseOffset server端返回的基本位移
     public boolean done(long baseOffset, long logAppendTime, RuntimeException exception) {
         final FinalState tryFinalState = (exception == null) ? FinalState.SUCCEEDED : FinalState.FAILED;
 
@@ -183,6 +198,7 @@ public final class ProducerBatch {
             log.trace("Failed to produce messages to {} with base offset {}.", topicPartition, baseOffset, exception);
         }
 
+        //cas设置finalState的值
         if (this.finalState.compareAndSet(null, tryFinalState)) {
             completeFutureAndFireCallbacks(baseOffset, logAppendTime, exception);
             return true;
@@ -207,9 +223,11 @@ public final class ProducerBatch {
 
     private void completeFutureAndFireCallbacks(long baseOffset, long logAppendTime, RuntimeException exception) {
         // Set the future before invoking the callbacks as we rely on its state for the `onCompletion` call
+        //把信息保存进 producerRequestResult
         produceFuture.set(baseOffset, logAppendTime, exception);
 
         // execute callbacks
+        //执行callbacks
         for (Thunk thunk : thunks) {
             try {
                 if (exception == null) {
@@ -224,10 +242,11 @@ public final class ProducerBatch {
                 log.error("Error executing user-provided callback on message for topic-partition '{}'", topicPartition, e);
             }
         }
-
+        //实际执行的是 latch.countDown(); 那么await 的线程就可以唤醒了
         produceFuture.done();
     }
 
+    //拆分producerBatch
     public Deque<ProducerBatch> split(int splitBatchSize) {
         Deque<ProducerBatch> batches = new ArrayDeque<>();
         MemoryRecords memoryRecords = recordsBuilder.build();
@@ -316,6 +335,7 @@ public final class ProducerBatch {
         return "ProducerBatch(topicPartition=" + topicPartition + ", recordCount=" + recordCount + ")";
     }
 
+    //deliveryTimeoutMs 是否小于 消息已等待的时间
     boolean hasReachedDeliveryTimeout(long deliveryTimeoutMs, long now) {
         return deliveryTimeoutMs <= now - this.createdMs;
     }
@@ -328,10 +348,15 @@ public final class ProducerBatch {
         return attempts.get();
     }
 
+    //重试
     void reenqueued(long now) {
+        //重试次数加1
         attempts.getAndIncrement();
+        //更新最后一次重试的时间
         lastAttemptMs = Math.max(lastAppendTime, now);
+        //更新最后一个保存消息的时间
         lastAppendTime = Math.max(lastAppendTime, now);
+        //设置重试状态为true
         retry = true;
     }
 
@@ -339,6 +364,7 @@ public final class ProducerBatch {
         return drainedMs - createdMs;
     }
 
+    //计算已经等待的时间，当前时间减去最后的时间戳
     long waitedTimeMs(long nowMs) {
         return Math.max(0, nowMs - lastAttemptMs);
     }
@@ -358,6 +384,7 @@ public final class ProducerBatch {
         return this.retry;
     }
 
+    //返回 MemoryRecords对象，封装了已经写入的数据
     public MemoryRecords records() {
         return recordsBuilder.build();
     }
@@ -408,6 +435,7 @@ public final class ProducerBatch {
      * it is not safe to invoke the completion callbacks (e.g. because we are holding a lock,
      * {@link RecordAccumulator#abortBatches()}).
      */
+    //关闭了appendStream 重置了buffer指针 abort=true
     public void abortRecordAppends() {
         recordsBuilder.abort();
     }

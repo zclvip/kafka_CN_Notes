@@ -29,11 +29,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * The set of requests which have been sent or are being sent but haven't yet received a response
  */
+//缓存了已经发送出去但是没收到响应的request
 final class InFlightRequests {
 
+    //每个连接缓存的最大的在途请求数量
     private final int maxInFlightRequestsPerConnection;
+    //在途请求集合
     private final Map<String, Deque<NetworkClient.InFlightRequest>> requests = new HashMap<>();
     /** Thread safe total number of in flight requests. */
+    //inFlightRequest 请求数量
     private final AtomicInteger inFlightRequestCount = new AtomicInteger(0);
 
     public InFlightRequests(int maxInFlightRequestsPerConnection) {
@@ -43,6 +47,7 @@ final class InFlightRequests {
     /**
      * Add the given request to the queue for the connection it was directed to
      */
+    //每次加到Deque的对头
     public void add(NetworkClient.InFlightRequest request) {
         String destination = request.destination;
         Deque<NetworkClient.InFlightRequest> reqs = this.requests.get(destination);
@@ -67,6 +72,7 @@ final class InFlightRequests {
     /**
      * Get the oldest request (the one that will be completed next) for the given node
      */
+    //获取最老的请求，即队尾的元素，会删除元素
     public NetworkClient.InFlightRequest completeNext(String node) {
         NetworkClient.InFlightRequest inFlightRequest = requestQueue(node).pollLast();
         inFlightRequestCount.decrementAndGet();
@@ -77,6 +83,7 @@ final class InFlightRequests {
      * Get the last request we sent to the given node (but don't remove it from the queue)
      * @param node The node id
      */
+    //获取最后的元素，但是不删除元素，只是查询
     public NetworkClient.InFlightRequest lastSent(String node) {
         return requestQueue(node).peekFirst();
     }
@@ -86,6 +93,7 @@ final class InFlightRequests {
      * @param node The node the request was sent to
      * @return The request
      */
+    //获取第一个元素，并删除
     public NetworkClient.InFlightRequest completeLastSent(String node) {
         NetworkClient.InFlightRequest inFlightRequest = requestQueue(node).pollFirst();
         inFlightRequestCount.decrementAndGet();
@@ -98,6 +106,11 @@ final class InFlightRequests {
      * @param node Node in question
      * @return true iff we have no requests still being sent to the given node
      */
+    //是否可以向该nodeid发送更多的请求,该方法是NetworkClient用于判断是否可以向指定的node发送请求的条件之一
+    //queue == null || queue.isEmpty() 表示队列为空，因此可以发送
+    //queue.peekFirst().send.completed() 为true表示当前对头的请求已经发送完成，如果对头请求迟迟发送不出去，可能出现了网络问题，不能继续发送
+    //queue.size() < this.maxInFlightRequestsPerConnection 该节点在途的请求数量是否小于设置的最大数量，用于判断InFlightRequests队列中是否堆积了过多的请求
+    //如果node中堆积了过期的未响应请求，则说明这个节点负载比较大或者是网络连接有问题
     public boolean canSendMore(String node) {
         Deque<NetworkClient.InFlightRequest> queue = requests.get(node);
         return queue == null || queue.isEmpty() ||
@@ -162,6 +175,7 @@ final class InFlightRequests {
         }
     }
 
+    //是否有超时的请求
     private Boolean hasExpiredRequest(long now, Deque<NetworkClient.InFlightRequest> deque) {
         for (NetworkClient.InFlightRequest request : deque) {
             long timeSinceSend = Math.max(0, now - request.sendTimeMs);
@@ -177,6 +191,7 @@ final class InFlightRequests {
      * @param now current time in milliseconds
      * @return list of nodes
      */
+    //返回包含nodeid的list，只要该node的的deque超时的，nodeid就放进去
     public List<String> nodesWithTimedOutRequests(long now) {
         List<String> nodeIds = new ArrayList<>();
         for (Map.Entry<String, Deque<NetworkClient.InFlightRequest>> requestEntry : requests.entrySet()) {

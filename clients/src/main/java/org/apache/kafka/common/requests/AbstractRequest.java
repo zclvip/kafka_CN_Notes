@@ -71,6 +71,7 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
             return build(latestAllowedVersion());
         }
 
+        //留给子类实现
         public abstract T build(short version);
     }
 
@@ -87,6 +88,7 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
         return version;
     }
 
+    //生成报文，并且封装到NetworkSend中
     public Send toSend(String destination, RequestHeader header) {
         return new NetworkSend(destination, serialize(header));
     }
@@ -94,6 +96,9 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
     /**
      * Use with care, typically {@link #toSend(String, RequestHeader)} should be used instead.
      */
+    // 1、传入的参数是RequestHeader，header.toStruct()方法，返回header的Struct对象
+    // 2、调用子类的toStruct()方法，返回body部分的Struct对象
+    // 3、然后调用 AbstractRequestResponse.serialize的方法，将header和body都写入ByteBuffer并返回
     public ByteBuffer serialize(RequestHeader header) {
         return serialize(header.toStruct(), toStruct());
     }
